@@ -64,22 +64,6 @@ internal static class Program
         Client = new TelegramBotClient(Config.TelegramToken!);
         Client.StartReceiving(TelegramUpdateHandler, TelegramErrorHandler);
         Console.ReadLine();
-
-        /*        Rect windowRect = new();
-                GetWindowRect(process.MainWindowHandle, ref windowRect);
-                Console.WriteLine("Width:" + (windowRect.Right - windowRect.Left)); //padding 40
-                Console.WriteLine("Height:" + (windowRect.Bottom - windowRect.Top)); // 130
-
-                SetForegroundWindow(process.MainWindowHandle);
-
-                Bitmap bmpScreenshot = new(350, 70);
-
-                Graphics g = Graphics.FromImage(bmpScreenshot);
-
-                g.CopyFromScreen(windowRect.Left + 40, windowRect.Top + 130, 0, 0, new(350, 70));
-
-                bmpScreenshot.Save("Screenshot.png", ImageFormat.Png);*/
-
     }
 
     private static async Task TelegramUpdateHandler(ITelegramBotClient sender, Update e, CancellationToken cancellationToken)
@@ -156,23 +140,25 @@ internal static class Program
         }
     }
 
-    private static async void QueueCallback(string? value)
+    private static async void QueueCallback(string? value, QueueState state)
     {
-        var msgText = value == null ? "🔸 The queue has passed, entering the game" : $"🔹 Queue position: {value}";
+        var msgText = state == QueueState.Passed ? "🔸 The queue has passed, entering the game" :
+            state == QueueState.Stopped ? "🔻 Queue waiting stopped" : $"🔹 Queue position: {value}";
 
 
         foreach (var item in Viewers)
         {
-            if (value == null)
+            if (state == QueueState.Passed || state == QueueState.Stopped)
+            {
                 await Client.SendTextMessageAsync(item.Value.ChatId, msgText);
+            }
             else
             {
-
                 await Client.EditMessageTextAsync(item.Value.ChatId, item.Value.QueueMessageId, msgText);
             }
         }
 
-        if (value == null)
+        if (state == QueueState.Passed || state == QueueState.Stopped)
         {
             Viewers.Clear();
             Wrapper.Dispose();

@@ -7,26 +7,36 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace GFNViewer;
+internal enum QueueState
+{
+    Passed,
+    Processing,
+    Stopped,
+}
+
 internal sealed partial class GFNWrapper : IDisposable
 {
     private readonly string LogPath;
     private readonly System.Timers.Timer Timer;
-    private const int LastLines = 20;
-    private readonly Action<string?> QueueCallback; 
+    private readonly Action<string?, QueueState> QueueCallback; 
     private string? LastQueue = "";
+    private long LastChangeIndex;
 
     public void Dispose()
     {
         Timer.Dispose();
     }
 
-    public GFNWrapper(Action<string?> callback)
+    public GFNWrapper(Action<string?, QueueState> callback)
     {
         LogPath       = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\NVIDIA Corporation\\GeForceNOW\\debug.log";
         QueueCallback = callback;
 
         if (!File.Exists(LogPath))
             throw new InvalidOperationException("GeForce NOW not found");
+
+        using var file = File.Open(LogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        LastChangeIndex = file.Length;
 
         Timer = new(TimeSpan.FromSeconds(10));
         Timer.Elapsed += DebugLogCheckEvent;
@@ -36,31 +46,39 @@ internal sealed partial class GFNWrapper : IDisposable
     private void DebugLogCheckEvent(object? sender, System.Timers.ElapsedEventArgs e)
     {
         using var file = File.Open(LogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        file.Position = file.Length -2;
 
-        int lines = 0;
-        var builder = new StringBuilder();
-        while(file.Position > 0 && lines != LastLines)
-        {
-            var chunk =  file.ReadByte();
-            builder.Insert(0,(char)chunk);
-            if(chunk == '\n')
-            {
-                lines++;
-
-                if (lines == LastLines)
-                    break;
-            }
-            file.Position -= 2;
-        }
-        var match = QueueRegex().Matches(builder.ToString()).LastOrDefault();
-
-        var val = match?.Groups[4]?.Value;
-
-        if (val == LastQueue)
+        if (file.Length == LastChangeIndex)
             return;
 
-        QueueCallback?.Invoke(LastQueue = val);
+        if(file.Length < LastChangeIndex)
+        {
+            LastChangeIndex = file.Length;
+            return;
+        }
+
+        file.Position   = LastChangeIndex;
+        LastChangeIndex = file.Length;
+
+        using var reader = new StreamReader(file);
+        var text = reader.ReadToEnd();
+
+        var state = QueueState.Processing;
+        string? result = null;
+
+        if (text.Contains("onStopResult"))
+        {
+            state = QueueState.Stopped;
+        }
+        else if (text.Contains("IPC_STREAMING_SESSION_SETUP_EVENT"))
+        {
+            state = QueueState.Passed;
+        }
+        else if((result = QueueRegex().Matches(text).LastOrDefault()?.Groups[4]?.Value) == null)
+        {
+            return;
+        }
+
+        QueueCallback?.Invoke(result, state);
     }
 
     [GeneratedRegex("\\[(.+)/[ ]*(.+):INFO:.+\\].+\\(state: (.*), queue: (.*), eta: (.*)\\)")]
