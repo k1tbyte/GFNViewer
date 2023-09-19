@@ -86,7 +86,8 @@ internal static class Program
             }
 
             await Client.SendTextMessageAsync(e.Message.Chat.Id, "✅ Queue notification enabled");
-            await Client.SendTextMessageAsync(e.Message.Chat.Id, "🌀 Waiting for queue information");
+            var queueMessage = await Client.SendTextMessageAsync(e.Message.Chat.Id, "🌀 Waiting for queue information");
+            await Client.PinChatMessageAsync(e.Message.Chat.Id, queueMessage.MessageId);
             return;
         }
 
@@ -142,23 +143,24 @@ internal static class Program
 
     private static async void QueueCallback(string? value, QueueState state)
     {
-        var msgText = state == QueueState.Passed ? "🔸 The queue has passed, entering the game" :
-            state == QueueState.Stopped ? "🔻 Queue waiting stopped" : $"🔹 Queue position: {value}";
+        var msgText = 
+            state == QueueState.Passed  ? "🔸 The queue has passed, entering the game" :
+            state == QueueState.Stopped ? "🔻 Queue waiting stopped" : 
+            state == QueueState.Failed  ? "❌ Internal streaming error" : $"🔹 Queue position: {value}";
 
 
         foreach (var item in Viewers)
         {
-            if (state == QueueState.Passed || state == QueueState.Stopped)
-            {
-                await Client.SendTextMessageAsync(item.Value.ChatId, msgText);
-            }
-            else
+            if (state == QueueState.Processing)
             {
                 await Client.EditMessageTextAsync(item.Value.ChatId, item.Value.QueueMessageId, msgText);
+                continue;
             }
+
+            await Client.SendTextMessageAsync(item.Value.ChatId, msgText);
         }
 
-        if (state == QueueState.Passed || state == QueueState.Stopped)
+        if (state != QueueState.Processing)
         {
             Viewers.Clear();
             Wrapper.Dispose();

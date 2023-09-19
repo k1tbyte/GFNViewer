@@ -12,6 +12,7 @@ internal enum QueueState
     Passed,
     Processing,
     Stopped,
+    Failed
 }
 
 internal sealed partial class GFNWrapper : IDisposable
@@ -73,11 +74,16 @@ internal sealed partial class GFNWrapper : IDisposable
         {
             state = QueueState.Passed;
         }
-        else if((result = QueueRegex().Matches(text).LastOrDefault()?.Groups[4]?.Value) == null)
+        else if(text.Contains("IPC_STREAMING_FAILURE_EVENT"))
+        {
+            state = QueueState.Failed;
+        }
+        else if((result = QueueRegex().Matches(text).LastOrDefault()?.Groups[4]?.Value) == null || LastQueue == result)
         {
             return;
         }
 
+        LastQueue = result;
         QueueCallback?.Invoke(result, state);
     }
 
